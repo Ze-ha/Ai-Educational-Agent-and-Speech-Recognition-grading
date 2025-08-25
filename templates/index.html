@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>语音测评 Demo</title>
+  <style>
+    canvas {
+        display: block;
+        background-color: #ea9b2b;
+        width: 100%;
+        height:100px;
+        margin-top: 10px;
+    }
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+
+    .banner {
+      width: 100%;
+      height: auto;
+    }
+
+    .left-content {
+      flex: 1;
+      padding-right: 40px;
+    }
+
+    .right-content {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .right-content img {
+      max-width: 100%;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.2);
+    }
+
+    h2 {
+      margin-top: 0;
+      color: #059edb;
+    }
+
+    #recordBtn {
+      margin-top: 10px;
+    }
+
+    pre {
+      background: #4c7ade;
+      padding: 20px;
+      border-radius: 8px;
+    }
+    .chat-box {
+  margin-top: 20px;
+  background: #ffffff;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 0 10px #ccc;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.bubble {
+  background: #e0f7ff;
+  padding: 10px 15px;
+  margin-bottom: 10px;
+  border-radius: 15px;
+  display: inline-block;
+  max-width: 70%;
+}
+
+  </style>
+  </style>
+</head>
+<img src="{{ url_for('static', filename='demo1.png') }}" alt="Demo Image" width="300" style = "width:100%; height:auto">
+<body>
+    <class="content-container">   
+        <class="left-content">
+            <h2>请朗读以下英文句子：</h2>
+            <p id="text">OKC, short for the Oklahoma City Thunder, will win the NBA Championship.</p>
+            <button id="recordBtn">🎤 开始录音</button>
+            <p id="status">当前状态：未开始</p>
+            <pre id="result">评测分数将显示在这里</pre>
+            <canvas id="waveform"></canvas>
+    <div>
+        <div class = "right-content">
+            <stype="text-align:center;">
+            <img src="{{url_for('static',filename= 'thunder.jpg')}}" alt = "OKC">
+            <img src="{{url_for('static',filename= 'a.png')}}" alt = "Button" id="speaker" style="width: 40px;cursor:pointer;">
+            <audio id="sga-audio" src="{{url_for('static',filename= 'SGA.mp3')}}" alt = "OKC"></audio>
+        </div>
+    </div>
+  <h3> 🦄请输入你想说的话：</h3>
+<input type="text" id="textInput" placeholder="Type English here..." style="width: 70%; padding: 8px;">
+<button id="sendBtn">Send</button>
+
+<div id="chatBox" class="chat-box">
+  <div class="bubble">🤖 Hello! I’m your English friend. Talk to me!</div>
+</div>
+
+  <script>
+    let mediaRecorder;
+    let chunks = [];
+    let audioContext, analyser, dataArray, source;
+    const canvas = document.getElementById("waveform");
+    const canvasCtx = canvas.getContext("2d")
+
+    function drawWaveform() {
+    requestAnimationFrame(drawWaveform);
+    if (!analyser) return;
+
+  analyser.getByteTimeDomainData(dataArray);
+  canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // 多条波形线配置
+  const layers = [
+    { offsetY: -2, color: "rgba(0, 255, 255, 0.2)", lineWidth: 1 },
+    { offsetY:  0, color: "rgba(0, 180, 255, 0.8)", lineWidth: 2.5 }, // 主线
+    { offsetY:  2, color: "rgba(0, 255, 255, 0.2)", lineWidth: 1 }
+  ];
+
+  for (const layer of layers) {
+    canvasCtx.beginPath();
+    const sliceWidth = canvas.width / dataArray.length;
+    let x = 0;
+
+    for (let i = 0; i < dataArray.length; i++) {
+      const v = dataArray[i] / 128.0;
+      const y = (v * canvas.height / 2) + layer.offsetY;
+      if (i === 0) canvasCtx.moveTo(x, y);
+      else canvasCtx.lineTo(x, y);
+      x += sliceWidth;
+    }
+
+    canvasCtx.lineTo(canvas.width, canvas.height / 2 + layer.offsetY);
+
+    canvasCtx.strokeStyle = layer.color;
+    canvasCtx.lineWidth = layer.lineWidth;
+
+    // 主线加发光效果
+    if (layer.offsetY === 0) {
+      canvasCtx.shadowColor = "#00ccff";
+      canvasCtx.shadowBlur = 10;
+    } else {
+      canvasCtx.shadowBlur = 0;
+    }
+
+    canvasCtx.stroke();
+  }
+}
+
+    document.getElementById("recordBtn").onclick = async () => {
+      if (!mediaRecorder || mediaRecorder.state === "inactive") {
+        chunks = [];
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioContext = new AudioContext();
+        analyser = audioContext.createAnalyser();
+        source = audioContext.createMediaStreamSource(stream);
+        source.connect(analyser);
+        analyser.fftSize = 2048;
+        dataArray = new Uint8Array(analyser.fftSize);
+        drawWaveform();
+        mediaRecorder.start();
+        document.getElementById("status").innerText = "录音中，请开始朗读...";
+        document.getElementById("recordBtn").innerText = "🛑 停止录音";
+
+        mediaRecorder.ondataavailable = e => chunks.push(e.data);
+        mediaRecorder.onstop = async () => {
+          document.getElementById("status").innerText = "正在上传音频进行评分...";
+          const blob = new Blob(chunks, { type: 'audio/wav' });
+          const formData = new FormData();
+          formData.append('audio', blob, 'recording.mp3');
+
+          const res = await fetch('/upload', {
+            method: 'POST',
+            body: formData
+          });
+
+          const data = await res.json();
+          const s = data.score
+          document.getElementById("status").innerText = "评分完成";
+          document.getElementById("result").innerText = "总分：" + s.total.toFixed(2) + "\n" +
+         "准确度：" + s.accuracy.toFixed(2) + "\n" +
+         "流利度：" + s.fluency.toFixed(2) + "\n" +
+         "完整度：" + s.integrity.toFixed(2);
+          document.getElementById("recordBtn").innerText = "再次录音";
+          if (audioContext && audioContext.state !== 'closed') {
+            audioContext.close();
+        }};
+      } else {
+        mediaRecorder.stop();
+      }
+    };
+
+  const speaker = document.getElementById("speaker");
+  const audio = document.getElementById("sga-audio");
+  speaker.addEventListener("click", () => {
+    if (audio.paused) {
+      audio.play();
+    } else {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+  });
+
+  const sendBtn = document.getElementById("sendBtn");
+const input = document.getElementById("textInput");
+const chatBox = document.getElementById("chatBox");
+// 按下回车就等于点击 Send 按钮
+input.addEventListener("keydown", function(event) {
+  if (event.key === "Enter") {
+    event.preventDefault();      // 防止换行（可选）
+    sendBtn.click();             // 相当于点击发送按钮
+  }
+});
+
+
+sendBtn.onclick = async () => {
+  const text = input.value.trim();
+  if (!text) return;
+
+  addBubble("🧒 " + text);
+
+  const res = await fetch('/chat_text', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text })
+  });
+
+  const data = await res.json();
+  addBubble("🤖 " + data.reply);
+  speak(data.reply);
+};
+
+function addBubble(text) {
+  const div = document.createElement('div');
+  div.className = 'bubble';
+  div.textContent = text;
+  chatBox.appendChild(div);
+}
+
+function speak(text) {
+  const cleanText = text.replace(/[\u{1F600}-\u{1F6FF}|\u{2600}-\u{27BF}|\u{1F300}-\u{1F5FF}|\u{1F900}-\u{1F9FF}|\u{1F1E6}-\u{1F1FF}]/gu, '');
+  const utter = new SpeechSynthesisUtterance(cleanText);
+  utter.lang = 'en-US';
+  utter.rate = 1;
+  speechSynthesis.speak(utter);
+}
+
+  </script>
+</body>
+</html>
